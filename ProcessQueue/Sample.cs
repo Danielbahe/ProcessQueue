@@ -2,9 +2,9 @@
 
 namespace ProcessQueue
 {
-    internal class SampleProcess : IProcessable
+    internal class SampleProcessable : IProcessable
     {
-        public SampleProcess()
+        public SampleProcessable()
         {
             // prepare stuff if needed, for example inject services
         }

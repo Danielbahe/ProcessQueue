@@ -9,7 +9,7 @@ namespace ProcessQueue.Models
         public int Priority { get; private set; }
         public DateTime RequestDate { get; private set; }
         public string Id { get; set; }
-        private IEnumerable<IProcessable> _processable;//todo list?
+        private readonly IEnumerable<IProcessable> _processable;
         public bool Completed { get; set; }
 
         public Process(IProcessable processable, int priority = 0)

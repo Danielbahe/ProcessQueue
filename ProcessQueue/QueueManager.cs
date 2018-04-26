@@ -9,6 +9,7 @@ namespace ProcessQueue
 {
     public class QueueManager
     {
+        private string _queueType;
         private IProcessQueue _queue;
         public string Status { get; private set; }
         private Task _worker;
@@ -24,23 +25,28 @@ namespace ProcessQueue
         {
             Status = "Inactive";
             _queue = new ProcessBlockingCollection();
+            _queueType = "BlockingCollection";
         }
 
         public QueueManager Start()
         {
-            if(Status == "Running") return this;
+            if (Status == "Running") return this;
 
             if (_getQueueMethod != null) GetStoredQueue();
 
-            Status = "Running";
             _cancelationToken = new CancellationTokenSource();
             _worker = Task.Run(QueueExecution, _cancelationToken.Token);
+            Status = "Running";
 
             return this;
         }
+        /// <summary>
+        /// Stop the queue and set Status "Stopped". The queue elements are not deleted and you can continue using Start
+        /// </summary>
+        /// <returns>Context</returns>
         public QueueManager Stop()
         {
-            if (Status == "Stopped") return this;
+            if (Status == "Stopped" || Status == "Inactive") return this;
             _cancelationToken.Cancel();
             _cancelationToken.Dispose();
             _cancelationToken = null;
@@ -50,35 +56,39 @@ namespace ProcessQueue
 
             return this;
         }
+
         public QueueManager AddProcess(IProcessable processable)
         {
             var process = new Process(processable);
             _queue.Add(process);
-            if(PriorityEnabled) _queue.OrderByPriority();
+            if (PriorityEnabled) _queue.OrderByPriority();
             if (_saveQueueMethod != null) SaveQueue();
             return this;
         }
+
         public QueueManager AddProcess(IEnumerable<IProcessable> processableList)
         {
             var process = new Process(processableList);
             _queue.Add(process);
-            if(PriorityEnabled) _queue.OrderByPriority();
+            if (PriorityEnabled) _queue.OrderByPriority();
             if (_saveQueueMethod != null) SaveQueue();
             return this;
         }
 
-        private void ReinsertProcess(Process process)
-        {
-            _queue.Add(process);
-            if (PriorityEnabled) _queue.OrderByPriority();
-            if (_saveQueueMethod != null) SaveQueue();
-        }
-
+        /// <summary>
+        /// Remove from the queue the Process
+        /// </summary>
+        /// <param name="id">Id of the Process to be canceled</param>
+        /// <returns>Returns true if works propertly</returns>
         public bool CancelProcess(string id)
         {
             var result = _queue.Remove(id);
             return result;
         }
+        /// <summary>
+        /// Stops and clear the queue. Sets status "Inactive"
+        /// </summary>
+        /// <returns>Context</returns>
         public QueueManager CancelQueue()
         {
             Stop();
@@ -95,55 +105,85 @@ namespace ProcessQueue
         /// <returns>Returns instance to fluent interface</returns>
         public QueueManager GenerateBackUpQueue(Action<string> saveQueueMethod, Func<string> getQueueMethod)
         {
+            if (saveQueueMethod == null || getQueueMethod == null) throw new NullReferenceException("Queue error, backup save actions not provided");
             _saveQueueMethod = saveQueueMethod;
             _getQueueMethod = getQueueMethod;
             return this;
         }
-
+        /// <summary>
+        /// Enable the option to stop de queue when Exception is catched. Don't clear the queue and you can continue if you call Start again.
+        /// </summary>
+        /// <returns>Context</returns>
         public QueueManager StopWorkerOnError()
         {
             StopOnError = true;
             return this;
         }
-        
+        /// <summary>
+        /// Execute the action when an Exception is catched, this don't break or stops the queue.
+        /// </summary>
+        /// <param name="action">Action invoked when exception is catched</param>
+        /// <returns>Context</returns>
         public QueueManager NotifyOnError(Action<string> action)
         {
-            //todo implement on Processable too
             _errorAction = action;
             NotifyErrors = true;
             return this;
         }
+
         public QueueManager EnablePriority()
         {
             PriorityEnabled = true;
             return this;
         }
+
         public QueueManager DisablePriority()
         {
             PriorityEnabled = false;
             return this;
         }
+        /// <summary>
+        /// Use a BlockingCollection as a queue, this is the default queue not necessary if you don't call UseListQueue before
+        /// </summary>
+        /// <returns>Context</returns>
         public QueueManager UseBlockingCollectionQueue()
         {
-            if (Status == "Running") Stop();
+            bool running = Status == "Running";
 
-            _queue = new ProcessBlockingCollection();
+            Stop();
+            var queue = new ProcessBlockingCollection();
+            foreach (var process in _queue)
+            {
+                queue.Add((Process)process);
+            }
+            _queue = queue;
+            _queueType = "BlockingCollection";
 
-            if (Status != "Running") Start();
+            if (running) Start();
             return this;
         }
-
+        /// <summary>
+        /// Set the queue as a List type instead of BlockingCollection
+        /// </summary>
+        /// <returns>Context</returns>
         public QueueManager UseListQueue()
         {
-            var running = _worker != null;
-            if(running) Stop();
+            bool running = Status == "Running";
 
-            _queue = new ProcessList();
+            Stop();
+            var queue = new ProcessList();
+            foreach (var process in _queue)
+            {
+                queue.Add((Process)process);
+            }
+            _queue = queue;
 
-            if(running) Start();
+            _queueType = "List";
+            Console.WriteLine("Queue Changed to list");
+            if (running) Start();
             return this;
         }
-        
+
         private async Task QueueExecution()
         {
             while (true)
@@ -153,7 +193,7 @@ namespace ProcessQueue
                 {
                     while (true)
                     {
-                         currentProcess = _queue.Take();
+                        currentProcess = _queue.Take();
                         if (currentProcess != null)
                         {
                             await currentProcess.Execute();
@@ -163,12 +203,13 @@ namespace ProcessQueue
                 }
                 catch (OperationCanceledException)
                 {
+                    Console.WriteLine("Queue message, operation canceled");
                     break;
                 }
-                catch (InvalidOperationException)
+                catch (InvalidOperationException ex)
                 {
-                    //todo manage Max, min and empty
-                    break;
+                    Console.WriteLine("Error on queue, Executing error, " + ex.Message);
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -186,6 +227,7 @@ namespace ProcessQueue
 
                 _errorAction.Invoke(message);
             }
+
             if (StopOnError) Stop();
             else
             {
@@ -195,10 +237,10 @@ namespace ProcessQueue
 
         private void SaveQueue()
         {
-            //todo custom exceptions
             try
             {
-                if(_saveQueueMethod == null) throw new NullReferenceException("Error on queue, not provided save queue action");
+                if (_saveQueueMethod == null)
+                    throw new NullReferenceException("Error on queue, not provided save queue action");
 
                 var jsonQueue = JsonConvert.SerializeObject(_queue);
 
@@ -207,37 +249,49 @@ namespace ProcessQueue
             catch (NullReferenceException ex)
             {
                 Console.WriteLine(ex.Message);
-                throw ex;
-
+                throw;
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Error on queue, save queue error");
-                throw ex;
+                Console.WriteLine("Error on queue, save queue error, " + ex.Message);
+                throw;
             }
-            
+        }
+        private void ReinsertProcess(Process process)
+        {
+            _queue.Add(process);
+            if (PriorityEnabled) _queue.OrderByPriority();
+            if (_saveQueueMethod != null) SaveQueue();
         }
 
         private void GetStoredQueue()
         {
-            //todo custom exceptions
             try
             {
-                if (_getQueueMethod == null)
-                    throw new NullReferenceException("Error on queue, not provided get queue action");
                 var jsonQueue = _getQueueMethod.Invoke();
 
-                _queue = JsonConvert.DeserializeObject<IProcessQueue>(jsonQueue);
-            }
-            catch (NullReferenceException ex)
-            {
-                Console.WriteLine(ex.Message);
-                throw ex;
+                var queue = JsonConvert.DeserializeObject<IProcessQueue>(jsonQueue);
+                if (_queueType == "List")
+                {
+                    _queue = new ProcessList();
+                    foreach (var process in queue)
+                    {
+                        _queue.Add((Process)process);
+                    }
+                }
+                else
+                {
+                    _queue = new ProcessBlockingCollection();
+                    foreach (var process in queue)
+                    {
+                        _queue.Add((Process)process);
+                    }
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine("Error on queue, get queue error");
-                throw ex;
+                Console.WriteLine("Error on queue, " + ex.Message);
+                throw;
             }
             finally
             {

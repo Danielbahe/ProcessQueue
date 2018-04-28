@@ -57,7 +57,7 @@ namespace ProcessQueue
             return this;
         }
 
-        public QueueManager AddProcess(IProcessable processable)
+        public QueueManager AddProcess(IProcessable processable, int priority = 0, string id = null)
         {
             var process = new Process(processable);
             _queue.Add(process);
@@ -66,7 +66,7 @@ namespace ProcessQueue
             return this;
         }
 
-        public QueueManager AddProcess(IEnumerable<IProcessable> processableList)
+        public QueueManager AddProcess(IEnumerable<IProcessable> processableList, int priority = 0, string id = null)
         {
             var process = new Process(processableList);
             _queue.Add(process);

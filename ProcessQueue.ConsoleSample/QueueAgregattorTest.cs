@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace ProcessQueue.ConsoleSample
@@ -21,9 +22,9 @@ namespace ProcessQueue.ConsoleSample
                 .AddProcess(new ConsoleWriteProcessable());
 
             _queueManager.Stop()
-                .AddProcess(new ConsoleWriteProcessable())
-                .AddProcess(new ConsoleWriteProcessable())
-                .AddProcess(new ConsoleWriteProcessable())
+                .AddProcess(new ConsoleWriteProcessable(), 1, "myId")
+                .AddProcess(new ConsoleWriteProcessable(),1)
+                .AddProcess(new List<IProcessable>{new ConsoleWriteProcessable()})
                 .AddProcess(new BreakingProcessable())
                 .AddProcess(new ConsoleWriteProcessable("process after breaking"));
 
@@ -32,6 +33,9 @@ namespace ProcessQueue.ConsoleSample
                 .Start();
 
 
+            Console.ReadKey();
+            _queueManager.AddProcess(new ConsoleWriteProcessable())
+                .AddProcess(new BreakingProcessable());
             Console.ReadKey();
         }
     }

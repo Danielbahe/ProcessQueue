@@ -12,20 +12,22 @@ namespace ProcessQueue.Models
         private readonly IEnumerable<IProcessable> _processable;
         public bool Completed { get; set; }
 
-        public Process(IProcessable processable, int priority = 0)
+        public Process(IProcessable processable, int priority = 0, string id = null)
         {
             var list = new List<IProcessable>();
             list.Add(processable);
             _processable = list;
             RequestDate = DateTime.Now;
             Priority = priority;
+            Id = id;
         }
 
-        public Process(IEnumerable<IProcessable> processableList, int priority = 0)
+        public Process(IEnumerable<IProcessable> processableList, int priority = 0, string id = null)
         {
             _processable = processableList;
             RequestDate = DateTime.Now;
             Priority = priority;
+            Id = id;
         }
 
         public async Task Execute()

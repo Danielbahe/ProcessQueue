@@ -13,11 +13,13 @@ namespace ProcessQueue.Models
         void OrderByPriority();
         void Add(Process process);
         bool Remove(string id);
+        void Insert(int index, Process process);
 
     }
 
     public class ProcessList : List<Process>, IProcessQueue
     {
+
         public void OrderByPriority()
         {
             this.OrderByDescending(process => process.Priority);
@@ -27,13 +29,18 @@ namespace ProcessQueue.Models
         {
             try
             {
-                this.Remove(this.First(p => p.Id == id));
+                Remove(this.First(p => p.Id == id));
                 return true;
             }
             catch (InvalidOperationException ex)
             {
                 return false;
             }
+        }
+
+        public void Insert(int index, Process process)
+        {
+            base.Insert(index, process);
         }
 
         public Process Take()
@@ -62,6 +69,16 @@ namespace ProcessQueue.Models
         public bool Remove(string id)
         {
             return false;
+        }
+
+        public void Insert(int index, Process process)
+        {
+            Add(process);
+            int i;
+            for(i = 0; i < Count-1; i++ )
+            {
+                Add(Take());
+            }
         }
     }
 }

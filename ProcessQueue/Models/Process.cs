@@ -30,6 +30,11 @@ namespace ProcessQueue.Models
             Id = id;
         }
 
+        private Process()
+        {
+
+        }
+
         public async Task Execute()
         {
             var result = false;

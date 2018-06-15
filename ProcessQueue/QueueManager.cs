@@ -10,33 +10,36 @@ namespace ProcessQueue
     public class QueueManager
     {
         private string _queueType;
+        private bool _fifoMode;
         private IProcessQueue _queue;
-        public string Status { get; private set; }
+        public QueueStatus Status { get; private set; }
         private Task _worker;
         private CancellationTokenSource _cancelationToken;
         public bool NotifyErrors { get; private set; }
         public bool StopOnError { get; private set; }
         public bool PriorityEnabled { get; private set; }
-        private Action<string> _errorAction;
-        private Action<string> _saveQueueMethod;
-        private Func<string> _getQueueMethod;
+        private Action<Exception, Process> _errorAction;
+        private Action<string, string> _saveQueueMethod;
+        private Func<string, string> _getQueueMethod;
+        public readonly string Id;
 
-        public QueueManager()
+        public QueueManager(string id = null)
         {
-            Status = "Inactive";
+            Id = id;
+            Status = QueueStatus.Inactive;
             _queue = new ProcessBlockingCollection();
             _queueType = "BlockingCollection";
         }
 
         public QueueManager Start()
         {
-            if (Status == "Running") return this;
+            if (Status == QueueStatus.Running) return this;
 
             if (_getQueueMethod != null) GetStoredQueue();
 
             _cancelationToken = new CancellationTokenSource();
             _worker = Task.Run(QueueExecution, _cancelationToken.Token);
-            Status = "Running";
+            Status = QueueStatus.Running;
 
             return this;
         }
@@ -46,13 +49,13 @@ namespace ProcessQueue
         /// <returns>Context</returns>
         public QueueManager Stop()
         {
-            if (Status == "Stopped" || Status == "Inactive") return this;
+            if (Status == QueueStatus.Stopped || Status == QueueStatus.Inactive) return this;
             _cancelationToken.Cancel();
             _cancelationToken.Dispose();
             _cancelationToken = null;
 
             _worker = null;
-            Status = "Stopped";
+            Status = QueueStatus.Stopped;
 
             return this;
         }
@@ -93,7 +96,7 @@ namespace ProcessQueue
         {
             Stop();
             _queue.Clear();
-            Status = "Inactive";
+            Status = QueueStatus.Inactive;
             return this;
         }
 
@@ -103,8 +106,9 @@ namespace ProcessQueue
         /// <param name="saveQueueMethod">Method that shoud store the json queue</param>
         /// <param name="getQueueMethod">Method that shoud return the stored queue json</param>
         /// <returns>Returns instance to fluent interface</returns>
-        public QueueManager GenerateBackUpQueue(Action<string> saveQueueMethod, Func<string> getQueueMethod)
+        public QueueManager GenerateBackUpQueue(Action<string, string> saveQueueMethod, Func<string, string> getQueueMethod)
         {
+            UseListQueue();
             if (saveQueueMethod == null || getQueueMethod == null) throw new NullReferenceException("Queue error, backup save actions not provided");
             _saveQueueMethod = saveQueueMethod;
             _getQueueMethod = getQueueMethod;
@@ -124,16 +128,17 @@ namespace ProcessQueue
         /// </summary>
         /// <param name="action">Action invoked when exception is catched</param>
         /// <returns>Context</returns>
-        public QueueManager NotifyOnError(Action<string> action)
+        public QueueManager NotifyOnError(Action<Exception, Process> action)
         {
             _errorAction = action;
             NotifyErrors = true;
             return this;
         }
 
-        public QueueManager EnablePriority()
+        public QueueManager EnablePriority(bool enabled = true)
         {
-            PriorityEnabled = true;
+            if (enabled) FifoMode(false);
+            PriorityEnabled = enabled;
             return this;
         }
 
@@ -148,7 +153,7 @@ namespace ProcessQueue
         /// <returns>Context</returns>
         public QueueManager UseBlockingCollectionQueue()
         {
-            bool running = Status == "Running";
+            bool running = Status == QueueStatus.Running;
 
             Stop();
             var queue = new ProcessBlockingCollection();
@@ -168,7 +173,9 @@ namespace ProcessQueue
         /// <returns>Context</returns>
         public QueueManager UseListQueue()
         {
-            bool running = Status == "Running";
+            if (_queueType == "List") return this;
+
+            bool running = Status == QueueStatus.Running;
 
             Stop();
             var queue = new ProcessList();
@@ -181,6 +188,12 @@ namespace ProcessQueue
             _queueType = "List";
             Console.WriteLine("Queue Changed to list");
             if (running) Start();
+            return this;
+        }
+        public QueueManager FifoMode(bool active)
+        {
+            EnablePriority(false);
+            _fifoMode = active;
             return this;
         }
 
@@ -222,12 +235,8 @@ namespace ProcessQueue
         {
             if (NotifyErrors)
             {
-                var message = ex.Message;
-                if (StopOnError) message = message + " - Queue Stopped";
-
-                _errorAction.Invoke(message);
+                _errorAction.Invoke(ex, currentProcess);
             }
-
             if (StopOnError) Stop();
             else
             {
@@ -244,7 +253,7 @@ namespace ProcessQueue
 
                 var jsonQueue = JsonConvert.SerializeObject(_queue);
 
-                _saveQueueMethod.Invoke(jsonQueue);
+                _saveQueueMethod.Invoke(jsonQueue, Id);
             }
             catch (NullReferenceException ex)
             {
@@ -259,8 +268,16 @@ namespace ProcessQueue
         }
         private void ReinsertProcess(Process process)
         {
-            _queue.Add(process);
-            if (PriorityEnabled) _queue.OrderByPriority();
+            if (_fifoMode)
+            {
+                _queue.Insert(0, process);
+            }
+            else
+            {
+                _queue.Add(process);
+                if (PriorityEnabled) _queue.OrderByPriority();
+            }
+
             if (_saveQueueMethod != null) SaveQueue();
         }
 
@@ -268,9 +285,13 @@ namespace ProcessQueue
         {
             try
             {
-                var jsonQueue = _getQueueMethod.Invoke();
+                var jsonQueue = _getQueueMethod.Invoke(Id);
 
-                var queue = JsonConvert.DeserializeObject<IProcessQueue>(jsonQueue);
+                IProcessQueue queue = JsonConvert.DeserializeObject<ProcessList>(jsonQueue);
+
+                    queue = JsonConvert.DeserializeObject<ProcessList>(jsonQueue);
+
+
                 if (_queueType == "List")
                 {
                     _queue = new ProcessList();
@@ -295,7 +316,7 @@ namespace ProcessQueue
             }
             finally
             {
-                Status = "Inactive";
+                Status = QueueStatus.Inactive;
             }
         }
     }

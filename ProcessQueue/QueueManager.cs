@@ -9,19 +9,22 @@ namespace ProcessQueue
 {
     public class QueueManager
     {
-        private string _queueType;
-        private bool _fifoMode;
-        private IProcessQueue _queue;
         public QueueStatus Status { get; private set; }
-        private Task _worker;
-        private CancellationTokenSource _cancelationToken;
+        public bool HavePendingProcess => _queue.Count != 0;
         public bool NotifyErrors { get; private set; }
         public bool StopOnError { get; private set; }
         public bool PriorityEnabled { get; private set; }
+
+        private CancellationTokenSource _cancelationToken;
         private Action<Exception, Process> _errorAction;
         private Action<string, string> _saveQueueMethod;
         private Func<string, string> _getQueueMethod;
         public readonly string Id;
+        private readonly bool _havePendingProcess;
+        private string _queueType;
+        private bool _fifoMode;
+        private IProcessQueue _queue;
+        private Task _worker;
 
         public QueueManager(string id = null)
         {
@@ -228,6 +231,8 @@ namespace ProcessQueue
                 {
                     ManageErrors(ex, currentProcess);
                 }
+
+                if (_saveQueueMethod != null) SaveQueue();
             }
         }
 
@@ -277,8 +282,6 @@ namespace ProcessQueue
                 _queue.Add(process);
                 if (PriorityEnabled) _queue.OrderByPriority();
             }
-
-            if (_saveQueueMethod != null) SaveQueue();
         }
 
         private void GetStoredQueue()

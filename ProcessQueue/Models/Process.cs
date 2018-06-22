@@ -9,22 +9,22 @@ namespace ProcessQueue.Models
         public int Priority { get; private set; }
         public DateTime RequestDate { get; private set; }
         public string Id { get; set; }
-        private readonly IEnumerable<IProcessable> _processable;
+        public IEnumerable<BaseProcessable> Processables { get; set; }
         public bool Completed { get; set; }
 
-        public Process(IProcessable processable, int priority = 0, string id = null)
+        public Process(BaseProcessable processable, int priority = 0, string id = null)
         {
-            var list = new List<IProcessable>();
+            var list = new List<BaseProcessable>();
             list.Add(processable);
-            _processable = list;
+            Processables = list;
             RequestDate = DateTime.Now;
             Priority = priority;
             Id = id;
         }
 
-        public Process(IEnumerable<IProcessable> processableList, int priority = 0, string id = null)
+        public Process(IEnumerable<BaseProcessable> processableList, int priority = 0, string id = null)
         {
-            _processable = processableList;
+            Processables = processableList;
             RequestDate = DateTime.Now;
             Priority = priority;
             Id = id;
@@ -32,18 +32,21 @@ namespace ProcessQueue.Models
 
         private Process()
         {
-
         }
 
         public async Task Execute()
         {
             var result = false;
-            
-            foreach (var processable in _processable)
+
+            foreach (var processable in Processables)
             {
-                result = await processable.Execute();
+                var miau = (Task) processable.GetType().GetMethod("Execute").Invoke(processable, null);
+                await miau.ConfigureAwait(false);
+                var resultProperty = miau.GetType().GetProperty("Result");
+                result = (bool) resultProperty.GetValue(miau);
                 if (!result) break;
             }
+
             Completed = result;
         }
     }
